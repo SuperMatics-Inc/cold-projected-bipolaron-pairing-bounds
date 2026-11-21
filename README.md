@@ -77,6 +77,8 @@ The limitations are stated in the paper and hold here as well.
 ```
 MANIFEST.sha256          SHA-256 of every tracked file except this one
 CITATION.cff             citation metadata for the preprint
+CLAIMS.md                each claim of the paper, its evidence, and what stays open
+BUILD.md                 the build recipe, the identifier policy and the CI checks
 LICENSE                  MIT License, for the code
 paper/main.pdf           the reviewed manuscript, released unmodified
 paper/main.tex           LaTeX source of that manuscript
