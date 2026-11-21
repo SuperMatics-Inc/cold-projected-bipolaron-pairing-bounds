@@ -1,0 +1,157 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    name: Replay the certificate program on the release archive
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # Every module replay.py imports: mpmath (outward interval arithmetic), numpy (finite-level
+      # operators), scipy (matrix exponentials of the two-site checks).
+      - name: Install the dependencies of the certificate program
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install mpmath numpy scipy
+          python -c 'import mpmath, numpy, scipy; print(mpmath.__version__, numpy.__version__, scipy.__version__)'
+
+      # The pinned sources are the reviewed bytes; the manifest protects them.
+      - name: Pinned sources match the review
+        run: |
+          sha256sum replay/replay.py | grep -q '^4de1a9451dab5715a74001bad155b33da4a8b11f88b474dc9ed43640036d54fb  replay/replay.py$'
+          sha256sum replay/README.md | grep -q '^712c891ab3716dec163650ebd0e0dec893c87d6ebc8b7e3ec4b11dfc1bca5314  replay/README.md$'
+          sha256sum paper/main.tex | grep -q '^54577845049ab85c2c3cb1e5a0acc9acbaae88526510a695ce155a07445ac84a  paper/main.tex$'
+          sha256sum paper/main.pdf | grep -q '^b92ee523c4947cce05e9f1b7906cf6abe47685568982759c4ec185c98df7633c  paper/main.pdf$'
+          sha256sum paper/refs.bib | grep -q '^97580d0cd5975b22d6816c541c4835533fbfe4d8e5dee216a946e00225a9f51b  paper/refs.bib$'
+
+      - name: Every pinned file verifies
+        run: |
+          sha256sum -c MANIFEST.sha256
+          (cd replay && sha256sum -c SHA256SUMS)
+
+      - name: The manifest covers every tracked file
+        run: |
+          git ls-files | grep -vx 'MANIFEST.sha256' | sort > /tmp/tracked.txt
+          grep -v '^\s*$' MANIFEST.sha256 | sed -E 's/^[0-9a-f]{64}  //' | sort > /tmp/manifested.txt
+          diff -u /tmp/tracked.txt /tmp/manifested.txt
+
+      - name: Build the release archive and unpack it
+        run: |
+          git archive --format=zip --prefix=cold-projected-bipolaron-pairing-bounds-1.0.0/ \
+            --output=/tmp/release.zip HEAD
+          mkdir /tmp/unpacked
+          unzip -q /tmp/release.zip -d /tmp/unpacked
+          tracked="$(git ls-files | wc -l)"
+          cd /tmp/unpacked/cold-projected-bipolaron-pairing-bounds-1.0.0
+          test "$(find . -type f | wc -l)" -eq "$tracked"
+          sha256sum -c MANIFEST.sha256
+          (cd replay && sha256sum -c SHA256SUMS)
+          echo "archive-prefix: cold-projected-bipolaron-pairing-bounds-1.0.0"
+
+      - name: Replay the certificate program, default and mutant modes
+        run: |
+          cd /tmp/unpacked/cold-projected-bipolaron-pairing-bounds-1.0.0
+          python replay/replay.py > /tmp/replay.out 2> /tmp/replay.err
+          test ! -s /tmp/replay.err
+          for marker in \
+            'CERTIFIED REPLAY PASSED (5 exact-rational & outward-interval check groups).'; do
+            grep -qF "$marker" /tmp/replay.out || { echo "missing from the replay output: $marker"; exit 1; }
+          done
+          cat /tmp/replay.out
+          python replay/replay.py --all-mutants > /tmp/mutants.out 2> /tmp/mutants.err
+          test ! -s /tmp/mutants.err
+          for marker in \
+            'ALL 16 GUARDED MUTANTS REJECTED (each exited 1).'; do
+            grep -qF "$marker" /tmp/mutants.out || { echo "missing from the mutant output: $marker"; exit 1; }
+          done
+          cat /tmp/mutants.out
+          echo "both replay modes exited 0"
+
+      - name: Numerical mode reproduces the two-site checks
+        run: |
+          cd /tmp/unpacked/cold-projected-bipolaron-pairing-bounds-1.0.0
+          python replay/replay.py --numerical > /tmp/numerical.out 2> /tmp/numerical.err
+          cat /tmp/numerical.out
+          grep -qF 'CERTIFIED REPLAY PASSED' /tmp/numerical.out
+
+      - name: Public prose safeguards
+        run: |
+          if git grep -nE '—|ceiling-20261118|LARGEU-PAPER|STRONG-PAPER|RESERVED DOI|reserved DOI' \
+              -- . ':!.github/workflows/ci.yml'; then
+            echo "internal path, draft or review marker in a released file"; exit 1
+          fi
+          if git ls-files | grep -iE '(^|/)(REVIEW|NOTES|FIX|SCOPING)|\.bak$|\.orig$'; then
+            echo "review, notes or backup file tracked"; exit 1
+          fi
+
+  paper:
+    name: Verify the released PDF and its text
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install poppler
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils
+      - name: Released bytes match the review
+        run: |
+          sha256sum paper/main.pdf | grep -q '^b92ee523c4947cce05e9f1b7906cf6abe47685568982759c4ec185c98df7633c  paper/main.pdf$'
+          sha256sum paper/main.tex | grep -q '^54577845049ab85c2c3cb1e5a0acc9acbaae88526510a695ce155a07445ac84a  paper/main.tex$'
+          sha256sum paper/refs.bib | grep -q '^97580d0cd5975b22d6816c541c4835533fbfe4d8e5dee216a946e00225a9f51b  paper/refs.bib$'
+      - name: PDF metadata
+        run: |
+          pdfinfo paper/main.pdf | tee /tmp/info.txt
+          grep -qx 'Pages:[[:space:]]*20' /tmp/info.txt
+          grep -q 'Davis Rens' /tmp/info.txt
+      - name: Title, identifiers and the disclosed status appear in the text
+        run: |
+          pdftotext -layout paper/main.pdf paper/main.txt
+          pdftotext paper/main.pdf /tmp/flat.txt
+          flat="$(tr -d ' \n\t\r' < /tmp/flat.txt)"
+          for marker in \
+            'Complex-rotationpairingboundsforacold-projected' \
+            'bipolaron-phonon' \
+            'obstructionstomicroscopicextensions' \
+            'two-dimensionalHolste' \
+            'DavisRens' \
+            'SuperMaticsInc.' \
+            '0000-0001-5839-5197' \
+            'AIassistance' \
+            'Thispreprinthasnotbeenneerreviewed.' \
+            'therecordreservedforit' \
+            '1/400' \
+            'Schrieffer' \
+            '10.5281/zenodo.24414616' \
+            '10.5281/zenodo.24414618' \
+            '10.5281/zenodo.24380128' \
+            '10.5281/zenodo.24412193'; do
+            case "$flat" in
+              *"$marker"*) ;;
+              *) echo "missing from the PDF text: $marker"; exit 1 ;;
+            esac
+          done
+          if grep -qE '—' paper/main.txt; then echo "em dash in the PDF text"; exit 1; fi
+          sha256sum paper/main.pdf
+          md5sum paper/main.pdf
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cold-projected-bipolaron-pairing-bounds-paper
+          path: |
+            paper/main.pdf
+            paper/main.txt
+            paper/main.tex
+            paper/refs.bib
+          if-no-files-found: error
