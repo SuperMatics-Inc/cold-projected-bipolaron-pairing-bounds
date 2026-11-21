@@ -135,7 +135,7 @@ jobs:
               "SuperMaticsInc.",
               "0000-0001-5839-5197",
               "AIassistance",
-              "Thispreprinthasnotbeenneerreviewed.",
+              "Thispreprinthasnotbeenpeerreviewed.",
               "therecordreservedforit",
               "1/400",
               "Schrieffer",
@@ -148,7 +148,7 @@ jobs:
           if missing:
               for m in missing:
                   print(f"missing from the PDF text: {m}")
-                  stem = m.split("reviewed")[0][:12] if m.startswith("Thispreprint") else m[:12]
+                  stem = m[:12]
                   i = flat.find(stem)
                   print("  context:", flat[max(0, i - 40): i + 120] if i >= 0 else "not found")
               sys.exit(1)
