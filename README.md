@@ -1,4 +1,5 @@
 # Complex-rotation pairing bounds for a cold-projected bipolaron-phonon effective model and obstructions to microscopic extensions in the two-dimensional Holstein model
+Research record: [Complex-rotation pairing bounds for a cold-projected bipolaron-phonon effective model and obstructions to microscopic extensions in the two-dimensional Holstein model](https://supermatics.io/research/cold-projected-bipolaron-pairing-bounds).
 
 Davis Rens, SuperMatics Inc. ([ORCID 0000-0001-5839-5197](https://orcid.org/0000-0001-5839-5197)).
 Version 1.0.0.
